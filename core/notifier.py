@@ -96,6 +96,6 @@ class Notifier:
             return
         self._send(f"⚠️ *Error*\n{error}")
 
-    def send(self, text: str):
+    def send(self, text: str) -> bool:
         """Send a raw text message."""
-        self._send(text)
+        return self._send(text)
