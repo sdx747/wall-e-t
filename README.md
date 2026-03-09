@@ -9,8 +9,8 @@ An algorithmic trading bot for the Indian stock market (NSE/BSE). Built to be st
 - **Plug-and-play strategies** — Drop a Python file in `strategies/`, it's auto-discovered
 - **Backtesting engine** — Test any strategy against historical data before risking real money
 - **Data pipeline** — Fetches and caches OHLCV data from Yahoo Finance with SQLite storage
-- **Paper trading** — Simulate trades without real money (Phase 2)
-- **Risk management** — Position sizing, stop-losses, daily loss limits (Phase 2)
+- **Paper trading** — Simulate trades without real money
+- **Risk management** — Position sizing, stop-losses, daily loss limits
 - **Telegram alerts** — Get notified on trades and daily P&L (Phase 3)
 - **CLI interface** — Simple commands for everything
 
@@ -19,7 +19,7 @@ An algorithmic trading bot for the Indian stock market (NSE/BSE). Built to be st
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Phase 1 | Data pipeline, strategy framework, backtesting | ✅ Complete |
-| Phase 2 | Paper trading, risk manager, execution engine | 🔜 Planned |
+| Phase 2 | Paper trading, risk manager, execution engine | ✅ Complete |
 | Phase 3 | Live trading (Shoonya broker), Telegram alerts | 🔜 Planned |
 | Phase 4 | More strategies, deployment, monitoring | 🔜 Planned |
 
@@ -34,7 +34,7 @@ An algorithmic trading bot for the Indian stock market (NSE/BSE). Built to be st
 
 ```bash
 # Clone the repo
-git clone https://github.com/<your-username>/wall-e-t.git
+git clone https://github.com/sdx747/wall-e-t.git
 cd wall-e-t
 
 # Create venv and install dependencies
@@ -74,6 +74,19 @@ chmod +x wallet.sh
 # Run backtest with individual trade details
 ./wallet.sh backtest ema_crossover --start 2024-01-01 -v
 
+# --- Paper Trading ---
+
+# Run a single trading cycle (tests strategy on latest data)
+./wallet.sh run-once
+
+# Start paper trading (runs during market hours)
+./wallet.sh start --paper
+
+# View today's trades and P&L
+./wallet.sh positions
+
+# --- Logs ---
+
 # View logs
 ./wallet.sh logs
 ./wallet.sh logs --date 2026-03-09
@@ -91,7 +104,11 @@ wall-e-t/
 ├── core/
 │   ├── config.py               # TOML config loader with env var overrides
 │   ├── data.py                 # Data fetching, caching, and retrieval
-│   └── logger.py               # Structured JSONL audit logger
+│   ├── logger.py               # Structured JSONL audit logger
+│   ├── broker.py               # BrokerBase ABC + PaperBroker
+│   ├── risk.py                 # Risk manager (position sizing, SL, daily limits)
+│   ├── portfolio.py            # Position tracking, trade recording
+│   └── engine.py               # Trading engine (orchestrator)
 │
 ├── strategies/
 │   ├── __init__.py             # Auto-discovers strategy files
@@ -169,10 +186,11 @@ See `config.toml.example` for all available options.
 Data Sources ──→ DataManager ──→ Strategy.on_candle() ──→ Signals
 (yfinance)       (SQLite cache)  (your logic)             │
                                                           ▼
-                                                     RiskManager (Phase 2)
+                                                     RiskManager
+                                                     (sizing, SL, limits)
                                                           │
                                                           ▼
-                                                     OrderExecutor (Phase 2)
+                                                     TradingEngine
                                                           │
                                                      ┌────┴────┐
                                                      ▼         ▼

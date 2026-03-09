@@ -161,6 +161,60 @@ def cmd_logs(args, config, logger):
                 print(line.strip())
 
 
+def cmd_start(args, config, logger):
+    """Start the trading engine."""
+    from core.engine import TradingEngine
+
+    # Override mode if specified
+    if args.paper:
+        config.setdefault("bot", {})["mode"] = "paper"
+    elif args.live:
+        config.setdefault("bot", {})["mode"] = "live"
+        print("WARNING: Live mode will place REAL orders with REAL money!")
+        confirm = input("Type 'yes' to confirm: ")
+        if confirm.strip().lower() != "yes":
+            print("Aborted.")
+            return
+
+    engine = TradingEngine(config)
+    engine.start()
+
+
+def cmd_run_once(args, config, logger):
+    """Run a single trading cycle (useful for testing)."""
+    from core.engine import TradingEngine
+
+    config.setdefault("bot", {})["mode"] = "paper"
+    engine = TradingEngine(config)
+    engine.run_once()
+
+
+def cmd_positions(args, config, logger):
+    """Show open positions and today's trades from the database."""
+    from core.portfolio import PortfolioTracker
+
+    db_path = config.get("data", {}).get("db_path", "data/history.db")
+    mode = config.get("bot", {}).get("mode", "paper")
+    pt = PortfolioTracker(db_path, logger, mode=mode)
+
+    trades = pt.get_today_trades()
+    if trades:
+        print(f"\nToday's trades ({mode} mode):")
+        print(f"{'Symbol':<12} {'Side':<6} {'Entry':>10} {'Exit':>10} {'Qty':>6} {'P&L':>10} {'P&L%':>8}")
+        print("─" * 65)
+        for t in trades:
+            print(
+                f"{t['symbol']:<12} {t['side']:<6} {t['entry_price']:>10.2f} "
+                f"{t['exit_price']:>10.2f} {t['quantity']:>6} "
+                f"{t['pnl']:>10.2f} {t['pnl_pct']:>7.2f}%"
+            )
+        total_pnl = sum(t["pnl"] for t in trades)
+        print(f"\nTotal P&L: INR {total_pnl:+,.2f}")
+    else:
+        print(f"\nNo trades today ({mode} mode).")
+    print()
+
+
 def cmd_status(args, config, logger):
     """Show current bot status."""
     print(f"\nWall-E-T Status")
@@ -188,8 +242,19 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
+    # start
+    start_parser = subparsers.add_parser("start", help="Start the trading engine")
+    start_parser.add_argument("--paper", action="store_true", help="Force paper trading mode")
+    start_parser.add_argument("--live", action="store_true", help="Force live trading mode")
+
+    # run-once
+    subparsers.add_parser("run-once", help="Run a single trading cycle (paper mode)")
+
     # status
     subparsers.add_parser("status", help="Show bot status")
+
+    # positions
+    subparsers.add_parser("positions", help="Show today's trades and P&L")
 
     # strategy
     strategy_parser = subparsers.add_parser("strategy", help="Manage strategies")
@@ -239,6 +304,9 @@ def main():
     # Dispatch
     commands = {
         "status": cmd_status,
+        "start": cmd_start,
+        "run-once": cmd_run_once,
+        "positions": cmd_positions,
         "logs": cmd_logs,
     }
 
