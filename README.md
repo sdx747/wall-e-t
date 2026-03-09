@@ -22,7 +22,8 @@ An algorithmic trading bot for the Indian stock market (NSE/BSE). Built to be st
 | Phase 1 | Data pipeline, strategy framework, backtesting | ✅ Complete |
 | Phase 2 | Paper trading, risk manager, execution engine | ✅ Complete |
 | Phase 3 | Live trading (Shoonya broker), Telegram alerts | ✅ Complete |
-| Phase 4 | More strategies, deployment, monitoring | 🔜 Planned |
+| Phase 4 | Web dashboard (FastAPI + Next.js) | ✅ Complete |
+| Phase 5 | More strategies, deployment, monitoring | 🔜 Planned |
 
 ## Quick Start
 
@@ -90,6 +91,16 @@ chmod +x wallet.sh
 
 # Start live trading (requires Shoonya credentials in config.toml)
 ./wallet.sh start --live
+
+# --- Web Dashboard ---
+
+# Start the API server (terminal 1)
+cd ~/wall-e-t && ~/.venvs/wall-e-t/bin/python -m api.run
+
+# Start the frontend (terminal 2)
+cd ~/wall-e-t/web && npm run dev -- --port 3001
+
+# Open http://localhost:3001 in your browser
 
 # --- Logs ---
 
