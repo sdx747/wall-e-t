@@ -1,0 +1,62 @@
+# Wall-E-T Configuration
+# Copy this file to config.toml and fill in your values.
+
+[bot]
+mode = "paper"                      # "live" | "paper" | "data-only"
+active_strategy = "ema_crossover"
+log_level = "info"                  # "debug" | "info" | "warning" | "error"
+
+[broker]
+provider = "shoonya"
+user_id = ""
+password = ""
+vendor_code = ""
+api_secret = ""
+imei = "abc1234"
+totp_secret = ""                    # For automated TOTP generation
+
+[telegram]
+bot_token = ""
+chat_id = ""
+enabled = false
+on_trade = true
+on_error = true
+daily_report = true
+
+[risk]
+capital = 100000                    # Total trading capital (INR)
+risk_per_trade = 1.0                # % of capital risked per trade
+max_daily_loss = 2.0                # % of capital — trading stops after this
+max_open_positions = 5
+max_exposure_per_stock = 20.0       # % of capital in a single stock
+max_total_exposure = 80.0           # % of capital deployed at any time
+force_stop_loss = true              # Reject signals without a stop-loss
+
+[data]
+db_path = "data/history.db"
+default_exchange = "NSE"
+
+[schedule]
+pre_market = "09:00"
+market_open = "09:15"
+market_close = "15:30"
+post_market = "15:45"
+timezone = "Asia/Kolkata"
+
+# Strategy-specific parameters
+# Each strategy reads its own [strategy.<name>] section.
+
+[strategy.ema_crossover]
+fast_period = 9
+slow_period = 21
+symbols = ["RELIANCE", "INFY", "TCS", "HDFCBANK", "ICICIBANK"]
+timeframe = "1d"
+product = "CNC"                     # CNC = delivery, MIS = intraday
+
+[strategy.rsi_mean_reversion]
+rsi_period = 14
+oversold = 30
+overbought = 70
+symbols = ["RELIANCE", "INFY", "TCS", "HDFCBANK", "ICICIBANK"]
+timeframe = "1d"
+product = "CNC"

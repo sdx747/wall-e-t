@@ -1,0 +1,20 @@
+# Wall-E-T Dependencies
+
+# Data
+yfinance>=1.2.0
+jugaad-data>=0.22
+pandas>=2.0
+numpy>=2.0
+
+# Backtesting
+backtrader>=1.9.78
+
+# Technical Analysis (optional, for custom strategies)
+# pandas-ta>=0.4.0  # Requires numba, not available on Python 3.14 yet
+# Use pandas built-in ewm/rolling for indicators instead
+
+# Broker (Phase 3)
+# NorenRestApiPy  # Install from GitHub when needed
+
+# Notifications (Phase 3)
+# python-telegram-bot>=21.0
