@@ -9,10 +9,11 @@ from datetime import datetime
 
 import pytz
 
-from core.broker import PaperBroker
+from core.broker import PaperBroker, ShoonyaBroker
 from core.config import load_config, get_strategy_config
 from core.data import DataManager
 from core.logger import JsonLogger
+from core.notifier import Notifier
 from core.portfolio import PortfolioTracker
 from core.risk import RiskManager
 from strategies import discover_strategies
@@ -32,7 +33,14 @@ class TradingEngine:
         # Core modules
         self.data = DataManager(config.get("data", {}), self.logger)
         self.risk = RiskManager(config.get("risk", {}), self.logger)
-        self.broker = PaperBroker(self.logger)
+        self.notifier = Notifier(config.get("telegram", {}), self.logger)
+
+        # Broker selection based on mode
+        if self.mode == "live":
+            self.broker = ShoonyaBroker(config.get("broker", {}), self.logger)
+        else:
+            self.broker = PaperBroker(self.logger)
+
         self.portfolio = PortfolioTracker(
             config.get("data", {}).get("db_path", "data/history.db"),
             self.logger,
@@ -58,6 +66,12 @@ class TradingEngine:
 
     def start(self):
         """Start the trading engine. Runs until interrupted."""
+        # Login to broker if live mode
+        if self.mode == "live":
+            if not self.broker.login():
+                print("ERROR: Broker login failed. Check credentials in config.toml.")
+                return
+
         self.logger.info(
             "engine_start",
             mode=self.mode,
@@ -66,6 +80,9 @@ class TradingEngine:
         )
         self._running = True
         self.risk.reset_daily()
+        self.notifier.send(
+            f"🤖 *Wall-E-T started*\nMode: {self.mode}\nStrategy: {self.strategy.name}"
+        )
 
         print(f"\nWall-E-T started in {self.mode.upper()} mode")
         print(f"Strategy: {self.strategy.name}")
@@ -102,6 +119,12 @@ class TradingEngine:
         """Graceful shutdown."""
         self._running = False
         self._print_summary()
+
+        # Logout from broker if live
+        if self.mode == "live" and hasattr(self.broker, "logout"):
+            self.broker.logout()
+
+        self.notifier.send("🛑 *Wall-E-T stopped*")
         self.logger.info("engine_stop", mode=self.mode)
         self.logger.close()
 
@@ -164,11 +187,19 @@ class TradingEngine:
                     signal.quantity, current_price,
                     self.strategy.name,
                 )
-                self.portfolio.record_order(
-                    self.broker.orders[order_id],
-                    self.strategy.name, signal.reason,
+                # Record order (PaperBroker stores in .orders dict, ShoonyaBroker doesn't)
+                order_data = (
+                    self.broker.orders.get(order_id, {})
+                    if hasattr(self.broker, "orders") else
+                    {"order_id": order_id, "symbol": signal.symbol, "side": "BUY",
+                     "qty": signal.quantity, "price": current_price, "status": "filled",
+                     "placed_at": datetime.now().isoformat()}
                 )
+                self.portfolio.record_order(order_data, self.strategy.name, signal.reason)
                 self.risk.on_entry()
+                self.notifier.trade_alert(
+                    signal.symbol, "BUY", signal.quantity, current_price, signal.reason,
+                )
 
                 # Place stop-loss order if provided
                 if signal.stop_loss:
@@ -198,12 +229,20 @@ class TradingEngine:
             )
 
             if order_id:
+                entry_price = pos["avg_price"]
                 pnl = self.portfolio.close_position(signal.symbol, current_price)
-                self.portfolio.record_order(
-                    self.broker.orders[order_id],
-                    self.strategy.name, signal.reason,
+                order_data = (
+                    self.broker.orders.get(order_id, {})
+                    if hasattr(self.broker, "orders") else
+                    {"order_id": order_id, "symbol": signal.symbol, "side": "SELL",
+                     "qty": pos["qty"], "price": current_price, "status": "filled",
+                     "placed_at": datetime.now().isoformat()}
                 )
+                self.portfolio.record_order(order_data, self.strategy.name, signal.reason)
                 self.risk.on_exit(pnl)
+                self.notifier.trade_closed(
+                    signal.symbol, entry_price, current_price, pos["qty"], pnl,
+                )
 
     def _is_market_hours(self, now: datetime) -> bool:
         """Check if current time is within market hours (weekday only)."""
@@ -233,11 +272,17 @@ class TradingEngine:
         """End-of-day summary."""
         stats = self.risk.get_stats()
         positions = self.portfolio.get_positions()
+        trades_today = self.portfolio.get_today_trades()
         self.logger.info(
             "end_of_day",
             daily_pnl=stats["daily_pnl"],
             open_positions=len(positions),
         )
+        self.notifier.daily_summary({
+            **stats,
+            "open_positions": len(positions),
+            "trades_today": len(trades_today),
+        })
         self._print_summary()
 
     def _get_interval(self) -> int:

@@ -12,6 +12,10 @@ pytz>=2024.1
 # Backtesting
 backtrader>=1.9.78
 
+# Broker
+NorenRestApiPy>=0.0.22
+pyotp>=2.9.0
+
 # Technical Analysis (optional, for custom strategies)
 # pandas-ta>=0.4.0  # Requires numba, not available on Python 3.14 yet
 # Use pandas built-in ewm/rolling for indicators instead

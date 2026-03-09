@@ -1,11 +1,12 @@
 """Broker abstraction for Wall-E-T.
 
-BrokerBase defines the interface. PaperBroker simulates order fills
-using live market prices. ShoonyaBroker (Phase 3) will implement real trading.
+BrokerBase defines the interface. PaperBroker simulates order fills.
+ShoonyaBroker connects to Shoonya (Finvasia) for real trading.
 """
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from hashlib import sha256
 from uuid import uuid4
 
 from core.logger import JsonLogger
@@ -164,3 +165,205 @@ class PaperBroker(BrokerBase):
         """Reset all positions and orders (for new session)."""
         self.orders.clear()
         self.positions.clear()
+
+
+# Product type mapping: our names -> Shoonya's codes
+_PRODUCT_MAP = {"CNC": "C", "MIS": "I", "NRML": "M"}
+_PRODUCT_MAP_REV = {v: k for k, v in _PRODUCT_MAP.items()}
+
+# Order type mapping
+_ORDER_TYPE_MAP = {"MKT": "MKT", "LMT": "LMT", "SL-MKT": "SL-MKT", "SL-LMT": "SL-LMT"}
+
+
+class ShoonyaBroker(BrokerBase):
+    """Real broker implementation using Shoonya (Finvasia) API.
+
+    Requires NorenRestApiPy package and a Shoonya trading account.
+    """
+
+    # Shoonya API endpoints
+    HOST = "https://api.shoonya.com/NorenWClientTP/"
+    WEBSOCKET = "wss://api.shoonya.com/NorenWSTP/"
+
+    def __init__(self, config: dict, logger: JsonLogger):
+        self.logger = logger
+        self.config = config
+        self._api = None
+        self._logged_in = False
+
+    def login(self) -> bool:
+        """Authenticate with Shoonya. Returns True on success."""
+        try:
+            from NorenRestApiPy.NorenApi import NorenApi
+        except ImportError:
+            self.logger.error("broker_error", error="NorenRestApiPy not installed. Run: pip install NorenRestApiPy")
+            return False
+
+        # Create API instance
+        self._api = NorenApi(host=self.HOST, websocket=self.WEBSOCKET)
+
+        # Generate TOTP if secret is provided
+        totp_code = self.config.get("twoFA", "")
+        totp_secret = self.config.get("totp_secret", "")
+        if totp_secret and not totp_code:
+            try:
+                import pyotp
+                totp_code = pyotp.TOTP(totp_secret).now()
+            except ImportError:
+                self.logger.error("broker_error", error="pyotp not installed for auto-TOTP. Run: pip install pyotp")
+                return False
+
+        resp = self._api.login(
+            userid=self.config["user_id"],
+            password=self.config["password"],
+            twoFA=totp_code,
+            vendor_code=self.config.get("vendor_code", ""),
+            api_secret=self.config.get("api_secret", ""),
+            imei=self.config.get("imei", "abc1234"),
+        )
+
+        if resp and resp.get("stat") == "Ok":
+            self._logged_in = True
+            self.logger.info("broker_login", status="success", user=self.config["user_id"])
+            return True
+
+        error = resp.get("emsg", "Unknown error") if resp else "No response from broker"
+        self.logger.error("broker_login", status="failed", error=error)
+        return False
+
+    def place_order(
+        self, symbol: str, exchange: str, side: str, qty: int,
+        order_type: str = "MKT", price: float | None = None,
+        trigger_price: float | None = None, product: str = "CNC",
+    ) -> str | None:
+        if not self._logged_in:
+            self.logger.error("broker_error", error="Not logged in")
+            return None
+
+        resp = self._api.place_order(
+            buy_or_sell="B" if side == "BUY" else "S",
+            product_type=_PRODUCT_MAP.get(product, "C"),
+            exchange=exchange,
+            tradingsymbol=symbol,
+            quantity=qty,
+            discloseqty=0,
+            price_type=_ORDER_TYPE_MAP.get(order_type, "MKT"),
+            price=price or 0.0,
+            trigger_price=trigger_price,
+            retention="DAY",
+        )
+
+        if resp and resp.get("stat") == "Ok":
+            order_id = resp.get("norenordno", "")
+            self.logger.info(
+                "order_placed",
+                order_id=order_id,
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                order_type=order_type,
+                price=price,
+                mode="live",
+            )
+            return order_id
+
+        error = resp.get("emsg", "Unknown error") if resp else "No response"
+        self.logger.error("order_failed", symbol=symbol, side=side, error=error)
+        return None
+
+    def cancel_order(self, order_id: str) -> bool:
+        if not self._logged_in:
+            return False
+
+        resp = self._api.cancel_order(orderno=order_id)
+        if resp and resp.get("stat") == "Ok":
+            self.logger.info("order_cancelled", order_id=order_id)
+            return True
+
+        error = resp.get("emsg", "Unknown error") if resp else "No response"
+        self.logger.error("cancel_failed", order_id=order_id, error=error)
+        return False
+
+    def get_positions(self) -> list[dict]:
+        if not self._logged_in:
+            return []
+
+        resp = self._api.get_positions()
+        if not resp:
+            return []
+
+        positions = []
+        for pos in resp:
+            net_qty = int(pos.get("netqty", 0))
+            if net_qty == 0:
+                continue
+            positions.append({
+                "symbol": pos.get("tsym", ""),
+                "exchange": pos.get("exch", ""),
+                "qty": net_qty,
+                "avg_price": float(pos.get("netavgprc", 0)),
+                "product": _PRODUCT_MAP_REV.get(pos.get("prd", ""), "CNC"),
+                "pnl": float(pos.get("rpnl", 0)) + float(pos.get("urmtom", 0)),
+            })
+        return positions
+
+    def get_order_book(self) -> list[dict]:
+        if not self._logged_in:
+            return []
+
+        resp = self._api.get_order_book()
+        if not resp:
+            return []
+
+        orders = []
+        for order in resp:
+            orders.append({
+                "order_id": order.get("norenordno", ""),
+                "symbol": order.get("tsym", ""),
+                "exchange": order.get("exch", ""),
+                "side": "BUY" if order.get("trantype") == "B" else "SELL",
+                "qty": int(order.get("qty", 0)),
+                "price": float(order.get("prc", 0)),
+                "trigger_price": float(order.get("trgprc", 0)) if order.get("trgprc") else None,
+                "order_type": order.get("prctyp", ""),
+                "product": _PRODUCT_MAP_REV.get(order.get("prd", ""), "CNC"),
+                "status": order.get("status", ""),
+                "fill_price": float(order.get("flprc", 0)) if order.get("flprc") else None,
+            })
+        return orders
+
+    def get_margins(self) -> dict:
+        """Get available margins/limits."""
+        if not self._logged_in:
+            return {}
+
+        resp = self._api.get_limits()
+        if not resp:
+            return {}
+
+        return {
+            "cash": float(resp.get("cash", 0)),
+            "margin_used": float(resp.get("marginused", 0)),
+            "margin_available": float(resp.get("marginused", 0)),
+        }
+
+    def search_symbol(self, exchange: str, query: str) -> list[dict]:
+        """Search for a trading symbol."""
+        if not self._logged_in:
+            return []
+
+        resp = self._api.searchscrip(exchange=exchange, searchtext=query)
+        if not resp or resp.get("stat") != "Ok":
+            return []
+
+        return [
+            {"symbol": s.get("tsym", ""), "token": s.get("token", ""), "name": s.get("cname", "")}
+            for s in resp.get("values", [])
+        ]
+
+    def logout(self):
+        """Logout from broker."""
+        if self._api and self._logged_in:
+            self._api.logout()
+            self._logged_in = False
+            self.logger.info("broker_logout")

@@ -11,7 +11,8 @@ An algorithmic trading bot for the Indian stock market (NSE/BSE). Built to be st
 - **Data pipeline** — Fetches and caches OHLCV data from Yahoo Finance with SQLite storage
 - **Paper trading** — Simulate trades without real money
 - **Risk management** — Position sizing, stop-losses, daily loss limits
-- **Telegram alerts** — Get notified on trades and daily P&L (Phase 3)
+- **Live trading** — Shoonya (Finvasia) broker integration with zero brokerage
+- **Telegram alerts** — Trade notifications, daily P&L summaries, error alerts
 - **CLI interface** — Simple commands for everything
 
 ## Current Status
@@ -20,7 +21,7 @@ An algorithmic trading bot for the Indian stock market (NSE/BSE). Built to be st
 |-------|-------------|--------|
 | Phase 1 | Data pipeline, strategy framework, backtesting | ✅ Complete |
 | Phase 2 | Paper trading, risk manager, execution engine | ✅ Complete |
-| Phase 3 | Live trading (Shoonya broker), Telegram alerts | 🔜 Planned |
+| Phase 3 | Live trading (Shoonya broker), Telegram alerts | ✅ Complete |
 | Phase 4 | More strategies, deployment, monitoring | 🔜 Planned |
 
 ## Quick Start
@@ -85,6 +86,11 @@ chmod +x wallet.sh
 # View today's trades and P&L
 ./wallet.sh positions
 
+# --- Live Trading ---
+
+# Start live trading (requires Shoonya credentials in config.toml)
+./wallet.sh start --live
+
 # --- Logs ---
 
 # View logs
@@ -108,7 +114,8 @@ wall-e-t/
 │   ├── broker.py               # BrokerBase ABC + PaperBroker
 │   ├── risk.py                 # Risk manager (position sizing, SL, daily limits)
 │   ├── portfolio.py            # Position tracking, trade recording
-│   └── engine.py               # Trading engine (orchestrator)
+│   ├── engine.py               # Trading engine (orchestrator)
+│   └── notifier.py             # Telegram notifications
 │
 ├── strategies/
 │   ├── __init__.py             # Auto-discovers strategy files
@@ -217,9 +224,9 @@ The backtester reports:
 | Language | Python 3.14 | Free |
 | Data | yfinance, jugaad-data | Free |
 | Storage | SQLite | Free |
-| Broker (Phase 3) | Shoonya (Finvasia) | Free API, zero brokerage |
-| Notifications (Phase 3) | Telegram Bot | Free |
-| Deployment (Phase 4) | Oracle Cloud Free Tier | Free |
+| Broker | Shoonya (Finvasia) | Free API, zero brokerage |
+| Notifications | Telegram Bot | Free |
+| Deployment | Oracle Cloud Free Tier | Free |
 
 ## Disclaimer
 
